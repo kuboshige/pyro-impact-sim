@@ -1,9 +1,12 @@
 <title>Pyro Impact Lab</title>
-<meta name="description" content="ブラウザだけで動く、飛翔体が壁に衝突して赤熱・破砕・飛散する様子をスロー再生で観察する2D衝突ラボ" />
+<meta name="description" content="ブラウザだけで動く2D/3D衝突ラボ。砲弾型の飛翔体が壁に衝突して赤熱・破砕・飛散する様子をスロー再生で観察し、弾頭の形も編集できる。" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
 <style>
+  /* Layout: single-screen HUD. Header + readouts, a 960x600 impact stage,
+     then a control deck (sliders row + action row). A modal houses the
+     warhead profile editor. Deliberately single dark "lab instrument" look. */
   :root {
     color-scheme: dark;
     --ground: #090c11;
@@ -27,8 +30,7 @@
 
   body {
     margin: 0;
-    background:
-      radial-gradient(1200px 700px at 50% -10%, #12202b 0%, var(--ground) 60%);
+    background: radial-gradient(1200px 700px at 50% -10%, #12202b 0%, var(--ground) 60%);
     color: var(--text);
     font-family: var(--font-display);
     -webkit-font-smoothing: antialiased;
@@ -51,11 +53,11 @@
     justify-content: space-between;
     gap: 16px 24px;
   }
-  .brand { display: flex; flex-direction: column; gap: 3px; }
+  .brand { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .brand .eyebrow {
     font-family: var(--font-mono);
     font-size: 11px;
-    letter-spacing: 0.28em;
+    letter-spacing: 0.26em;
     text-transform: uppercase;
     color: var(--accent);
     opacity: 0.85;
@@ -70,13 +72,9 @@
   }
   .brand h1 .spark { color: var(--hot); }
 
-  .readouts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
+  .readouts { display: flex; flex-wrap: wrap; gap: 10px; }
   .stat {
-    min-width: 96px;
+    min-width: 92px;
     padding: 8px 12px 9px;
     background: linear-gradient(180deg, var(--panel-2), var(--panel));
     border: 1px solid var(--line);
@@ -109,7 +107,7 @@
     background: var(--ground-2);
     box-shadow: 0 24px 60px -30px #000, inset 0 0 0 1px #ffffff05;
   }
-  canvas {
+  canvas#c {
     display: block;
     width: 100%;
     height: auto;
@@ -123,9 +121,10 @@
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--muted-2);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
     pointer-events: none;
     user-select: none;
+    max-width: calc(100% - 24px);
   }
   #hint b { color: var(--muted); font-weight: 600; }
   #status {
@@ -143,27 +142,18 @@
 
   /* ---------- controls ---------- */
   #controls {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr) auto;
-    gap: 14px 20px;
-    align-items: end;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
     padding: 16px 18px;
     background: linear-gradient(180deg, var(--panel-2), var(--panel));
     border: 1px solid var(--line);
     border-radius: 12px;
   }
-  .ctl { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-  .ctl .row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .ctl label {
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
+  .sliders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 20px; }
+  .ctl { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .ctl .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .ctl label { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
   .ctl .val {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -183,66 +173,103 @@
     cursor: pointer;
   }
   input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: var(--accent);
-    border: 2px solid #0a1418;
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #0a1418;
     box-shadow: 0 0 0 1px var(--accent-dim), 0 2px 6px #000a;
   }
   input[type="range"]::-moz-range-thumb {
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: var(--accent);
-    border: 2px solid #0a1418;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #0a1418;
     box-shadow: 0 0 0 1px var(--accent-dim);
   }
   input[type="range"]:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 
-  .buttons { display: flex; gap: 8px; }
-  button {
-    font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--text);
-    background: var(--panel-2);
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .actions .spacer { flex: 1 1 12px; }
+
+  .seg {
+    display: inline-flex;
     border: 1px solid var(--line);
     border-radius: 8px;
-    padding: 11px 15px;
-    cursor: pointer;
-    white-space: nowrap;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .seg button {
+    border: none; background: transparent; border-radius: 0;
+    padding: 10px 16px; font-size: 13px; font-weight: 600;
+    color: var(--muted); cursor: pointer;
+    font-family: var(--font-display); letter-spacing: 0.04em;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #06171a; }
+  .seg button + button { border-left: 1px solid var(--line); }
+
+  button {
+    font-family: var(--font-display);
+    font-size: 14px; font-weight: 600; letter-spacing: 0.02em;
+    color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 11px 15px; cursor: pointer; white-space: nowrap;
     transition: border-color 0.12s, background 0.12s, transform 0.06s;
   }
   button:hover { border-color: var(--accent-dim); background: #1b2530; }
   button:active { transform: translateY(1px); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  button.primary {
-    color: #06171a;
-    background: var(--accent);
-    border-color: var(--accent);
-  }
+  button.primary { color: #06171a; background: var(--accent); border-color: var(--accent); }
   button.primary:hover { background: #4fdae5; }
 
-  @media (max-width: 720px) {
-    #controls { grid-template-columns: 1fr 1fr; }
-    .buttons { grid-column: 1 / -1; }
-    .buttons button { flex: 1; }
-  }
-  @media (max-width: 440px) {
-    #controls { grid-template-columns: 1fr; }
+  .editor-open { display: inline-flex; align-items: center; gap: 7px; }
+  .editor-open .chip {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+    color: var(--muted); border: 1px solid var(--line-soft);
+    border-radius: 5px; padding: 1px 6px;
   }
 
+  /* ---------- editor modal ---------- */
+  #overlay {
+    position: fixed; inset: 0; z-index: 30;
+    background: #04070ad0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px 16px;
+  }
+  #overlay[hidden] { display: none !important; }
+  #editor {
+    width: 100%; max-width: 520px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 30px 80px -24px #000;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  #editor h2 { margin: 0; font-size: 18px; font-weight: 700; display: flex; align-items: baseline; gap: 10px; }
+  #editor h2 .sub { font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: 0.08em; }
+  .edwrap { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--ground-2); overflow: hidden; }
+  canvas#ed { display: block; width: 100%; height: auto; aspect-ratio: 480 / 210; touch-action: none; }
+  .edtip { font-family: var(--font-mono); font-size: 11px; color: var(--muted-2); letter-spacing: 0.02em; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+  .presets button { padding: 8px 12px; font-size: 13px; }
+  .edfoot { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+  .edfoot .spacer { flex: 1; }
+
+  @media (max-width: 720px) {
+    .sliders { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 460px) {
+    .sliders { grid-template-columns: 1fr; }
+    .actions .seg, .actions .editor-open { flex: 1 1 100%; }
+    .actions .editor-open { justify-content: center; }
+    .actions .spacer { display: none; }
+    #b-play, #b-reset { flex: 1; }
+  }
   @media (prefers-reduced-motion: reduce) {
-    button { transition: none; }
+    button, .seg button { transition: none; }
   }
 </style>
 
 <div id="app">
   <header>
     <div class="brand">
-      <span class="eyebrow">Hypervelocity Impact · 2D Sandbox</span>
+      <span class="eyebrow">Hypervelocity Impact · 2D / 3D Sandbox</span>
       <h1>Pyro Impact <span class="spark">Lab</span></h1>
     </div>
     <div class="readouts">
@@ -256,25 +283,52 @@
   <div id="stage">
     <canvas id="c" width="960" height="600"></canvas>
     <div id="status">▶ RUNNING</div>
-    <div id="hint"><b>Space</b> 一時停止 · <b>R</b> 再発射 · <b>.</b> コマ送り</div>
+    <div id="hint"><b>Space</b> 一時停止 · <b>R</b> 再発射 · <b>.</b> コマ送り<span id="hint3d"> · <b>ドラッグ</b> 視点回転</span></div>
   </div>
 
   <div id="controls">
-    <div class="ctl">
-      <div class="row"><label for="s-speed">初速</label><span class="val" id="v-speed">1800 u/s</span></div>
-      <input id="s-speed" type="range" min="10" max="100" value="72" />
+    <div class="sliders">
+      <div class="ctl">
+        <div class="row"><label for="s-speed">初速</label><span class="val" id="v-speed">2600 u/s</span></div>
+        <input id="s-speed" type="range" min="0" max="100" value="43" />
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="s-str">ターゲット強度</label><span class="val" id="v-str">46</span></div>
+        <input id="s-str" type="range" min="0" max="100" value="46" />
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="s-slow">スロー再生</label><span class="val" id="v-slow">0.20x</span></div>
+        <input id="s-slow" type="range" min="2" max="100" value="20" />
+      </div>
     </div>
-    <div class="ctl">
-      <div class="row"><label for="s-str">ターゲット強度</label><span class="val" id="v-str">50</span></div>
-      <input id="s-str" type="range" min="0" max="100" value="46" />
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="s-slow">スロー再生</label><span class="val" id="v-slow">0.20x</span></div>
-      <input id="s-slow" type="range" min="2" max="100" value="20" />
-    </div>
-    <div class="buttons">
+    <div class="actions">
+      <div class="seg" role="group" aria-label="表示モード">
+        <button id="m-2d" type="button" aria-pressed="true">2D</button>
+        <button id="m-3d" type="button" aria-pressed="false">3D</button>
+      </div>
+      <button id="b-edit" class="editor-open" type="button">弾頭エディタ <span class="chip" id="shape-name">砲弾</span></button>
+      <div class="spacer"></div>
       <button id="b-play" class="primary" type="button">⏸ 一時停止</button>
       <button id="b-reset" type="button">⟳ 再発射</button>
+    </div>
+  </div>
+</div>
+
+<div id="overlay" hidden>
+  <div id="editor" role="dialog" aria-modal="true" aria-labelledby="ed-title">
+    <h2 id="ed-title">弾頭エディタ <span class="sub">PROFILE · 輪郭を上下にドラッグ</span></h2>
+    <div class="edwrap"><canvas id="ed" width="480" height="210"></canvas></div>
+    <div class="edtip" id="ed-tip">◀ 後端　／　先端 ▶（この向きで標的へ飛びます）</div>
+    <div class="presets">
+      <button type="button" data-preset="shell">砲弾</button>
+      <button type="button" data-preset="needle">徹甲弾</button>
+      <button type="button" data-preset="flat">平頭</button>
+      <button type="button" data-preset="sphere">球</button>
+    </div>
+    <div class="edfoot">
+      <div class="spacer"></div>
+      <button id="ed-close" type="button">閉じる</button>
+      <button id="ed-apply" class="primary" type="button">適用して再発射</button>
     </div>
   </div>
 </div>
@@ -288,460 +342,638 @@
   const ctx = canvas.getContext("2d");
 
   // ---- tunables ----
-  const DT = 1 / 480;         // fixed physics timestep (s)
-  const BASE_STEPS = 8;       // substeps per frame at 1.0x  => 8*DT = 1/60 s
-  const ITER = 4;             // constraint iterations
+  const BASE_DT = 1 / 480;
   const DAMP = 0.999;
-  const G = 820;              // gravity (u/s^2)
-  const MAXSTEP = 12;         // per-substep displacement clamp (u)
+  const G = 820;                 // gravity (u/s^2) toward +y (screen down)
+  const MAXSTEP_FACTOR = 0.6;    // per-substep displacement clamp as fraction of spacing
   const SPACING = 9;
+  const R_PLATE = 4, R_PROJ = 4.6;
+  const IW_PLATE = 1, IW_PROJ = 1 / 7;
+  const REST = 0.07;             // collision restitution (low = inelastic thud)
+  const SEP_BETA = 0.4;          // positional separation softness
+  const LINK = SPACING * 1.8;    // bond neighbor distance
 
-  const R_PLATE = 4, R_PROJ = 5;
-  const IW_PLATE = 1, IW_PROJ = 1 / 6;
-
-  // ---- particle arrays (allocated after build) ----
+  // ---- particle arrays (allocated per build) ----
   let N = 0;
-  let x, y, ox, oy, iw, rad, kind, heat; // kind: 0 plate, 1 projectile
-  // ---- bonds (parallel arrays) ----
+  let x, y, z, ox, oy, oz, iw, rad, kind, heat; // kind: 0 plate, 1 projectile
+  // ---- bonds ----
   let bi, bj, brest, balive, bproj, bCount;
 
-  // ---- collision grid ----
-  const CELL = 11;
-  const GW = Math.ceil(W / CELL), GH = Math.ceil(H / CELL);
-  const head = new Int32Array(GW * GH);
+  // ---- runtime grid (collision) ----
+  const CELL = 10;
+  const GW = Math.ceil(W / CELL) + 2;
+  const GH = Math.ceil(H / CELL) + 2;
+  const GD = 28; // z cells (covers ~ -140..140)
+  const GZ0 = -140;
+  const head = new Int32Array(GW * GH * GD);
   let next;
 
-  // ---- sparks ----
-  const sparks = []; // {x,y,vx,vy,life}
+  const sparks = [];
 
-  // ---- runtime state ----
+  // ---- state ----
+  let mode = "2d";
   let running = true;
   let acc = 0;
-  let launchSpeed = 1800;   // u/s, set from slider on build
-  let breakStrain = 0.2;    // from strength slider (live)
+  let DT = BASE_DT;
+  let stepsPerFrame = 8;
+  let launchSpeed = 2600;
+  let breakStrain = 0.2;
   let slowmo = 0.20;
   let brokenCount = 0;
   let maxHeatEver = 0;
 
-  // ---------- build scene ----------
+  // ---- 3D camera ----
+  let yaw = -0.62, pitch = -0.34, autoYaw = true;
+  let camTarget = { x: 560, y: 360, z: 0 };
+  const CAM_D = 760, FOCAL = 720;
+  let dragging = false, lastPX = 0, lastPY = 0;
+
+  // ---- warhead profile (tail t=0 .. nose t=1), radius fraction 0..1 ----
+  const PRESETS = {
+    shell:  [0.50, 0.80, 0.96, 1.00, 1.00, 0.74, 0.0],
+    needle: [0.34, 0.46, 0.54, 0.58, 0.56, 0.40, 0.0],
+    flat:   [0.78, 0.97, 1.00, 1.00, 1.00, 1.00, 0.86],
+    sphere: [0.0, 0.60, 0.86, 1.00, 0.86, 0.60, 0.0],
+  };
+  const SHAPE_NAMES = { shell: "砲弾", needle: "徹甲弾", flat: "平頭", sphere: "球" };
+  let profile = PRESETS.shell.slice();
+  let shapeKey = "shell";
+  const PN = profile.length;
+  const profT = (k) => k / (PN - 1);
+  function radiusAt(t) {
+    const f = t * (PN - 1);
+    let i = Math.floor(f);
+    if (i >= PN - 1) return profile[PN - 1];
+    if (i < 0) return profile[0];
+    const u = f - i;
+    return profile[i] * (1 - u) + profile[i + 1] * u;
+  }
+
+  // ============================================================
+  //  SCENE BUILD
+  // ============================================================
   function build() {
-    const px = [], py = [], pkind = [];
-    // target plate: grid, bottom row pinned to ground
-    const cols = 24, rows = 30;
-    const plateW = (cols - 1) * SPACING;
-    const plateH = (rows - 1) * SPACING;
-    const left = 640 - plateW / 2;
+    const px = [], py = [], pz = [], pk = [];
+    const L = 96, maxR = 26;          // warhead axial length / max radius (u)
     const bottom = FLOOR - 6;
-    const top = bottom - plateH;
-    const idx = (r, c) => plateBase + r * cols + c;
-    const plateBase = 0;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        px.push(left + c * SPACING);
-        py.push(top + r * SPACING);
-        pkind.push(0);
+
+    if (mode === "2d") {
+      // --- plate: flat grid, bottom row pinned ---
+      const cols = 24, rows = 30;
+      const plateH = (rows - 1) * SPACING;
+      const left = 660 - ((cols - 1) * SPACING) / 2;
+      const top = bottom - plateH;
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) { px.push(left + c * SPACING); py.push(top + r * SPACING); pz.push(0); pk.push(0); }
+      camTarget = { x: 660, y: (top + bottom) / 2, z: 0 };
+      // --- warhead: filled silhouette, nose +x ---
+      const cy = (top + bottom) / 2, tailX = 150;
+      for (let a = 0; a <= L; a += SPACING) {
+        const rr = maxR * radiusAt(a / L);
+        for (let o = -maxR; o <= maxR; o += SPACING)
+          if (Math.abs(o) <= rr + 0.01) { px.push(tailX + a); py.push(cy + o); pz.push(0); pk.push(1); }
       }
-    }
-    // projectile: filled disk of heavy particles on the left, aimed at plate center
-    const projStart = px.length;
-    const cx = 120, cy = (top + bottom) / 2, discR = 24;
-    for (let gy = -discR; gy <= discR; gy += SPACING) {
-      for (let gx = -discR; gx <= discR; gx += SPACING) {
-        if (gx * gx + gy * gy <= discR * discR) {
-          px.push(cx + gx);
-          py.push(cy + gy);
-          pkind.push(1);
-        }
+    } else {
+      // --- plate: 3D slab (z = width, y = height, x = thickness), bottom pinned ---
+      const wz = 20, hy = 22, tx = 3;
+      const plateH = (hy - 1) * SPACING;
+      const top = bottom - plateH;
+      const z0 = -((wz - 1) * SPACING) / 2;
+      const px0 = 560;
+      for (let ix = 0; ix < tx; ix++)
+        for (let iy = 0; iy < hy; iy++)
+          for (let iz = 0; iz < wz; iz++) { px.push(px0 + ix * SPACING); py.push(top + iy * SPACING); pz.push(z0 + iz * SPACING); pk.push(0); }
+      camTarget = { x: px0, y: (top + bottom) / 2, z: 0 };
+      // --- warhead: revolved silhouette, nose +x ---
+      const cy = (top + bottom) / 2, tailX = 150;
+      for (let a = 0; a <= L; a += SPACING) {
+        const rr = maxR * radiusAt(a / L);
+        for (let oy2 = -maxR; oy2 <= maxR; oy2 += SPACING)
+          for (let oz2 = -maxR; oz2 <= maxR; oz2 += SPACING)
+            if (oy2 * oy2 + oz2 * oz2 <= rr * rr + 0.01) { px.push(tailX + a); py.push(cy + oy2); pz.push(oz2); pk.push(1); }
       }
     }
 
     N = px.length;
-    x = new Float32Array(px);
-    y = new Float32Array(py);
-    ox = new Float32Array(N);
-    oy = new Float32Array(N);
-    iw = new Float32Array(N);
-    rad = new Float32Array(N);
-    kind = new Uint8Array(pkind);
-    heat = new Float32Array(N);
+    x = new Float32Array(px); y = new Float32Array(py); z = new Float32Array(pz);
+    ox = new Float32Array(N); oy = new Float32Array(N); oz = new Float32Array(N);
+    iw = new Float32Array(N); rad = new Float32Array(N);
+    kind = new Uint8Array(pk); heat = new Float32Array(N);
     next = new Int32Array(N);
 
     for (let i = 0; i < N; i++) {
-      if (kind[i] === 0) {
-        rad[i] = R_PLATE;
-        // pin bottom row
-        const isBottom = py[i] >= bottom - 0.5;
-        iw[i] = isBottom ? 0 : IW_PLATE;
-      } else {
-        rad[i] = R_PROJ;
-        iw[i] = IW_PROJ;
-      }
-      ox[i] = x[i];
-      oy[i] = y[i];
+      if (kind[i] === 0) { rad[i] = R_PLATE; iw[i] = (y[i] >= bottom - 0.5) ? 0 : IW_PLATE; }
+      else { rad[i] = R_PROJ; iw[i] = IW_PROJ; }
+      ox[i] = x[i]; oy[i] = y[i]; oz[i] = z[i];
     }
 
-    // launch projectile: encode velocity via previous position
-    launchSpeed = speedFromSlider(+els.speed.value);
-    for (let i = 0; i < N; i++) {
-      if (kind[i] === 1) ox[i] = x[i] - launchSpeed * DT;
-    }
+    computeStep();
+    for (let i = 0; i < N; i++) if (kind[i] === 1) ox[i] = x[i] - launchSpeed * DT; // launch +x
 
-    // ---- bonds ----
-    const _bi = [], _bj = [], _rest = [], _proj = [];
-    const addBond = (a, b, proj) => {
-      const dx = x[a] - x[b], dy = y[a] - y[b];
-      _bi.push(a); _bj.push(b);
-      _rest.push(Math.hypot(dx, dy));
-      _proj.push(proj ? 1 : 0);
-    };
-    // plate lattice: right, down, and two diagonals (shear rigidity)
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const a = idx(r, c);
-        if (c + 1 < cols) addBond(a, idx(r, c + 1), false);
-        if (r + 1 < rows) addBond(a, idx(r + 1, c), false);
-        if (r + 1 < rows && c + 1 < cols) addBond(a, idx(r + 1, c + 1), false);
-        if (r + 1 < rows && c - 1 >= 0) addBond(a, idx(r + 1, c - 1), false);
-      }
-    }
-    // projectile: bond every near pair (rigid slug, very hard to break)
-    const link = SPACING * 1.6;
-    for (let a = projStart; a < N; a++) {
-      for (let b = a + 1; b < N; b++) {
-        const d = Math.hypot(x[a] - x[b], y[a] - y[b]);
-        if (d <= link) addBond(a, b, true);
-      }
-    }
-
-    bCount = _bi.length;
-    bi = new Int32Array(_bi);
-    bj = new Int32Array(_bj);
-    brest = new Float32Array(_rest);
-    bproj = new Uint8Array(_proj);
-    balive = new Uint8Array(bCount).fill(1);
-
-    sparks.length = 0;
-    brokenCount = 0;
-    maxHeatEver = 0;
-    acc = 0;
+    buildBonds();
+    sparks.length = 0; brokenCount = 0; maxHeatEver = 0; acc = 0;
   }
 
-  // ---------- physics substep ----------
+  function buildBonds() {
+    const _i = [], _j = [], _r = [], _p = [];
+    const link2 = LINK * LINK;
+    for (let a = 0; a < N; a++) {
+      for (let b = a + 1; b < N; b++) {
+        if (kind[a] !== kind[b]) continue;
+        const dx = x[a] - x[b], dy = y[a] - y[b], dz = z[a] - z[b];
+        if (Math.abs(dx) > LINK || Math.abs(dy) > LINK || Math.abs(dz) > LINK) continue;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > link2 || d2 < 1e-6) continue;
+        _i.push(a); _j.push(b); _r.push(Math.sqrt(d2)); _p.push(kind[a] === 1 ? 1 : 0);
+      }
+    }
+    bCount = _i.length;
+    bi = new Int32Array(_i); bj = new Int32Array(_j);
+    brest = new Float32Array(_r); bproj = new Uint8Array(_p);
+    balive = new Uint8Array(bCount).fill(1);
+  }
+
+  function computeStep() {
+    DT = Math.min(BASE_DT, (SPACING * MAXSTEP_FACTOR) / Math.max(1, launchSpeed));
+    stepsPerFrame = Math.max(4, Math.round((1 / 60) / DT));
+  }
+
+  const ITER = () => (mode === "3d" ? 3 : 4);
+
+  // ============================================================
+  //  PHYSICS
+  // ============================================================
   function substep(dt) {
     const g = G * dt * dt;
+    const maxStep = SPACING * MAXSTEP_FACTOR;
+    const is3d = mode === "3d";
 
-    // integrate (Verlet)
+    // integrate
     for (let i = 0; i < N; i++) {
       if (iw[i] === 0) continue;
-      let vx = (x[i] - ox[i]) * DAMP;
-      let vy = (y[i] - oy[i]) * DAMP;
-      if (vx > MAXSTEP) vx = MAXSTEP; else if (vx < -MAXSTEP) vx = -MAXSTEP;
-      if (vy > MAXSTEP) vy = MAXSTEP; else if (vy < -MAXSTEP) vy = -MAXSTEP;
-      ox[i] = x[i]; oy[i] = y[i];
-      x[i] += vx;
-      y[i] += vy + g;
-      heat[i] *= 0.9965; // cool
+      let vx = (x[i] - ox[i]) * DAMP, vy = (y[i] - oy[i]) * DAMP, vz = (z[i] - oz[i]) * DAMP;
+      vx = clampAbs(vx, maxStep); vy = clampAbs(vy, maxStep); vz = clampAbs(vz, maxStep);
+      ox[i] = x[i]; oy[i] = y[i]; oz[i] = z[i];
+      x[i] += vx; y[i] += vy + g; if (is3d) z[i] += vz;
+      heat[i] *= 0.9965;
     }
 
     // distance constraints
-    for (let k = 0; k < ITER; k++) {
+    const iters = ITER();
+    for (let k = 0; k < iters; k++) {
       for (let b = 0; b < bCount; b++) {
         if (!balive[b]) continue;
         const a = bi[b], c = bj[b];
-        let dx = x[c] - x[a], dy = y[c] - y[a];
-        let d = Math.sqrt(dx * dx + dy * dy);
+        const dx = x[c] - x[a], dy = y[c] - y[a], dz = is3d ? z[c] - z[a] : 0;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (d < 1e-6) continue;
         const wsum = iw[a] + iw[c];
         if (wsum === 0) continue;
         const diff = (d - brest[b]) / d;
-        const cx = dx * diff, cy = dy * diff;
         const wa = iw[a] / wsum, wc = iw[c] / wsum;
-        x[a] += cx * wa; y[a] += cy * wa;
-        x[c] -= cx * wc; y[c] -= cy * wc;
+        x[a] += dx * diff * wa; y[a] += dy * diff * wa;
+        x[c] -= dx * diff * wc; y[c] -= dy * diff * wc;
+        if (is3d) { z[a] += dz * diff * wa; z[c] -= dz * diff * wc; }
       }
     }
 
-    // break check (after solve, on final positions)
+    // break check
     for (let b = 0; b < bCount; b++) {
       if (!balive[b]) continue;
       const a = bi[b], c = bj[b];
-      const dx = x[c] - x[a], dy = y[c] - y[a];
-      const d = Math.sqrt(dx * dx + dy * dy);
+      const dx = x[c] - x[a], dy = y[c] - y[a], dz = is3d ? z[c] - z[a] : 0;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
       const strain = (d - brest[b]) / brest[b];
       const thresh = bproj[b] ? 4.0 : breakStrain;
       if (strain > thresh) {
-        balive[b] = 0;
-        brokenCount++;
+        balive[b] = 0; brokenCount++;
         const q = Math.min(1, (strain - thresh) * 2 + 0.35);
-        heat[a] = Math.min(1, heat[a] + q * 0.5);
-        heat[c] = Math.min(1, heat[c] + q * 0.5);
-        spawnSpark((x[a] + x[c]) / 2, (y[a] + y[c]) / 2, a, c);
+        heat[a] = Math.min(1, heat[a] + q * 0.45);
+        heat[c] = Math.min(1, heat[c] + q * 0.45);
+        spawnSpark((x[a] + x[c]) / 2, (y[a] + y[c]) / 2, is3d ? (z[a] + z[c]) / 2 : 0, a, c);
       }
     }
 
-    // particle collisions via uniform grid
-    head.fill(-1);
-    for (let i = 0; i < N; i++) {
-      let cxg = (x[i] / CELL) | 0, cyg = (y[i] / CELL) | 0;
-      if (cxg < 0) cxg = 0; else if (cxg >= GW) cxg = GW - 1;
-      if (cyg < 0) cyg = 0; else if (cyg >= GH) cyg = GH - 1;
-      const cell = cyg * GW + cxg;
-      next[i] = head[cell];
-      head[cell] = i;
-    }
-    for (let i = 0; i < N; i++) {
-      let cxg = (x[i] / CELL) | 0, cyg = (y[i] / CELL) | 0;
-      if (cxg < 0) cxg = 0; else if (cxg >= GW) cxg = GW - 1;
-      if (cyg < 0) cyg = 0; else if (cyg >= GH) cyg = GH - 1;
-      for (let oyy = -1; oyy <= 1; oyy++) {
-        const ny = cyg + oyy;
-        if (ny < 0 || ny >= GH) continue;
-        for (let oxx = -1; oxx <= 1; oxx++) {
-          const nx = cxg + oxx;
-          if (nx < 0 || nx >= GW) continue;
-          let j = head[ny * GW + nx];
-          while (j !== -1) {
-            if (j > i) collide(i, j, dt);
-            j = next[j];
-          }
-        }
-      }
-    }
+    collideAll(dt, is3d);
 
-    // boundaries: floor + side walls
+    // boundaries
     for (let i = 0; i < N; i++) {
       if (iw[i] === 0) continue;
       const r = rad[i];
       if (y[i] > FLOOR - r) {
         y[i] = FLOOR - r;
-        const vy = y[i] - oy[i];
-        oy[i] = y[i] + vy * 0.3;        // 30% bounce
-        const vx = x[i] - ox[i];
-        ox[i] = x[i] - vx * 0.6;        // floor friction
+        oy[i] = y[i] + (y[i] - oy[i]) * 0.3;
+        ox[i] = x[i] - (x[i] - ox[i]) * 0.6;
+        if (is3d) oz[i] = z[i] - (z[i] - oz[i]) * 0.6;
       }
-      if (x[i] < r) { x[i] = r; ox[i] = x[i] + (x[i] - ox[i]) * 0.4; }
-      else if (x[i] > W - r) { x[i] = W - r; ox[i] = x[i] + (x[i] - ox[i]) * 0.4; }
+      if (!is3d) {
+        if (x[i] < r) { x[i] = r; ox[i] = x[i] + (x[i] - ox[i]) * 0.4; }
+        else if (x[i] > W - r) { x[i] = W - r; ox[i] = x[i] + (x[i] - ox[i]) * 0.4; }
+      }
     }
 
-    updateSparks(dt);
+    updateSparks(dt, is3d);
   }
 
-  function collide(i, j, dt) {
-    if (kind[i] === 1 && kind[j] === 1) return; // skip projectile self-collision
+  function clampAbs(v, m) { return v > m ? m : (v < -m ? -m : v); }
+
+  function collideAll(dt, is3d) {
+    const total = GW * GH * GD;
+    for (let c = 0; c < total; c++) head[c] = -1;
+    const cellOf = (i) => {
+      let cx = ((x[i] / CELL) | 0) + 1; if (cx < 0) cx = 0; else if (cx >= GW) cx = GW - 1;
+      let cy = ((y[i] / CELL) | 0) + 1; if (cy < 0) cy = 0; else if (cy >= GH) cy = GH - 1;
+      let cz = is3d ? (((z[i] - GZ0) / CELL) | 0) : (GD >> 1);
+      if (cz < 0) cz = 0; else if (cz >= GD) cz = GD - 1;
+      return (cz * GH + cy) * GW + cx;
+    };
+    for (let i = 0; i < N; i++) { const c = cellOf(i); next[i] = head[c]; head[c] = i; }
+
+    const zlo = is3d ? -1 : 0, zhi = is3d ? 1 : 0;
+    for (let i = 0; i < N; i++) {
+      let cx = ((x[i] / CELL) | 0) + 1; if (cx < 1) cx = 1; else if (cx >= GW - 1) cx = GW - 2;
+      let cy = ((y[i] / CELL) | 0) + 1; if (cy < 1) cy = 1; else if (cy >= GH - 1) cy = GH - 2;
+      let cz = is3d ? (((z[i] - GZ0) / CELL) | 0) : (GD >> 1);
+      if (cz < 1) cz = 1; else if (cz >= GD - 1) cz = GD - 2;
+      for (let dz = zlo; dz <= zhi; dz++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            let j = head[((cz + dz) * GH + (cy + dy)) * GW + (cx + dx)];
+            while (j !== -1) { if (j > i) collide(i, j, dt, is3d); j = next[j]; }
+          }
+    }
+  }
+
+  function collide(i, j, dt, is3d) {
+    if (kind[i] === 1 && kind[j] === 1) return; // warhead is rigid-bonded, skip self
     const minD = rad[i] + rad[j];
-    let dx = x[j] - x[i], dy = y[j] - y[i];
-    let d2 = dx * dx + dy * dy;
+    let dx = x[j] - x[i], dy = y[j] - y[i], dz = is3d ? z[j] - z[i] : 0;
+    const d2 = dx * dx + dy * dy + dz * dz;
     if (d2 >= minD * minD || d2 < 1e-9) return;
     const d = Math.sqrt(d2);
-    const nx = dx / d, ny = dy / d;
-    const overlap = minD - d;
+    const nx = dx / d, ny = dy / d, nz = dz / d;
     const wsum = iw[i] + iw[j];
     if (wsum === 0) return;
-    const corr = overlap / wsum;
-    x[i] -= nx * corr * iw[i]; y[i] -= ny * corr * iw[i];
-    x[j] += nx * corr * iw[j]; y[j] += ny * corr * iw[j];
 
-    // frictional heating from approach speed
-    const rvx = (x[i] - ox[i]) - (x[j] - ox[j]);
-    const rvy = (y[i] - oy[i]) - (y[j] - oy[j]);
-    const approach = (rvx * nx + rvy * ny) / dt; // >0 => closing
-    if (approach > 300) {
-      const q = Math.min(0.5, (approach - 300) / 4000);
-      heat[i] = Math.min(1, heat[i] + q);
-      heat[j] = Math.min(1, heat[j] + q);
+    // closing velocity (in displacement units) BEFORE separation
+    const vrx = (x[i] - ox[i]) - (x[j] - ox[j]);
+    const vry = (y[i] - oy[i]) - (y[j] - oy[j]);
+    const vrz = is3d ? (z[i] - oz[i]) - (z[j] - oz[j]) : 0;
+    const approach = vrx * nx + vry * ny + vrz * nz; // >0 => closing
+
+    // inelastic normal impulse via previous-position edit
+    if (approach > 0) {
+      const jm = (1 + REST) * approach / wsum;
+      ox[i] += jm * iw[i] * nx; oy[i] += jm * iw[i] * ny; if (is3d) oz[i] += jm * iw[i] * nz;
+      ox[j] -= jm * iw[j] * nx; oy[j] -= jm * iw[j] * ny; if (is3d) oz[j] -= jm * iw[j] * nz;
+      const q = Math.min(0.55, (jm / dt) / 6000);
+      if (q > 0) { heat[i] = Math.min(1, heat[i] + q); heat[j] = Math.min(1, heat[j] + q); }
     }
+
+    // soft positional separation (Baumgarte)
+    const corr = (minD - d) * SEP_BETA / wsum;
+    x[i] -= nx * corr * iw[i]; y[i] -= ny * corr * iw[i]; if (is3d) z[i] -= nz * corr * iw[i];
+    x[j] += nx * corr * iw[j]; y[j] += ny * corr * iw[j]; if (is3d) z[j] += nz * corr * iw[j];
   }
 
-  // ---------- sparks ----------
-  function spawnSpark(sx, sy, a, c) {
-    if (sparks.length > 380) return;
+  // ---- sparks ----
+  function spawnSpark(sx, sy, sz, a, c) {
+    if (sparks.length > 420) return;
     const vax = (x[a] - ox[a]) + (x[c] - ox[c]);
     const vay = (y[a] - oy[a]) + (y[c] - oy[c]);
+    const vaz = (z[a] - oz[a]) + (z[c] - oz[c]);
     const n = 1 + (Math.random() * 2 | 0);
-    for (let s = 0; s < n; s++) {
+    for (let s = 0; s < n; s++)
       sparks.push({
-        x: sx, y: sy,
-        vx: vax * 30 + (Math.random() - 0.5) * 260,
-        vy: vay * 30 + (Math.random() - 0.5) * 260 - 40,
+        x: sx, y: sy, z: sz,
+        vx: vax * 28 + (Math.random() - 0.5) * 240,
+        vy: vay * 28 + (Math.random() - 0.5) * 240 - 40,
+        vz: (mode === "3d" ? vaz * 28 : 0) + (mode === "3d" ? (Math.random() - 0.5) * 200 : 0),
         life: 0.35 + Math.random() * 0.4,
       });
-    }
   }
-  function updateSparks(dt) {
+  function updateSparks(dt, is3d) {
     for (let i = sparks.length - 1; i >= 0; i--) {
       const p = sparks[i];
       p.life -= dt;
       if (p.life <= 0) { sparks.splice(i, 1); continue; }
       p.vy += G * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt; if (is3d) p.z += p.vz * dt;
       if (p.y > FLOOR) { p.y = FLOOR; p.vy *= -0.3; p.vx *= 0.5; }
     }
   }
 
-  // ---------- color ----------
+  // ============================================================
+  //  COLOR
+  // ============================================================
   const RAMP = [
-    [0.00, [150, 40, 24]],
-    [0.35, [236, 88, 20]],
-    [0.60, [255, 168, 46]],
-    [0.80, [255, 225, 120]],
-    [1.00, [255, 255, 245]],
+    [0.00, [150, 40, 24]], [0.35, [236, 88, 20]], [0.60, [255, 168, 46]],
+    [0.80, [255, 225, 120]], [1.00, [255, 255, 245]],
   ];
   function heatRamp(h) {
     for (let i = 1; i < RAMP.length; i++) {
       if (h <= RAMP[i][0]) {
         const [p0, c0] = RAMP[i - 1], [p1, c1] = RAMP[i];
         const t = (h - p0) / (p1 - p0);
-        return [
-          c0[0] + (c1[0] - c0[0]) * t,
-          c0[1] + (c1[1] - c0[1]) * t,
-          c0[2] + (c1[2] - c0[2]) * t,
-        ];
+        return [c0[0] + (c1[0] - c0[0]) * t, c0[1] + (c1[1] - c0[1]) * t, c0[2] + (c1[2] - c0[2]) * t];
       }
     }
     return RAMP[RAMP.length - 1][1];
   }
-  const COLD_PLATE = [122, 134, 152];
-  const COLD_PROJ = [150, 182, 216];
-  function colorFor(i) {
+  const COLD_PLATE = [122, 134, 152], COLD_PROJ = [150, 182, 216];
+  function colorFor(i, shade) {
     const h = heat[i];
     const cold = kind[i] ? COLD_PROJ : COLD_PLATE;
-    if (h <= 0.03) return cold;
-    const w = heatRamp(Math.min(1, h));
-    const m = Math.min(1, h / 0.22);
-    return [
-      cold[0] + (w[0] - cold[0]) * m,
-      cold[1] + (w[1] - cold[1]) * m,
-      cold[2] + (w[2] - cold[2]) * m,
-    ];
+    let r, g, b;
+    if (h <= 0.03) { r = cold[0]; g = cold[1]; b = cold[2]; }
+    else {
+      const w = heatRamp(Math.min(1, h)), m = Math.min(1, h / 0.22);
+      r = cold[0] + (w[0] - cold[0]) * m; g = cold[1] + (w[1] - cold[1]) * m; b = cold[2] + (w[2] - cold[2]) * m;
+    }
+    if (shade !== 1) { r *= shade; g *= shade; b *= shade; }
+    return "rgb(" + (r | 0) + "," + (g | 0) + "," + (b | 0) + ")";
   }
 
-  // ---------- render ----------
-  function render() {
-    // background
+  // ============================================================
+  //  RENDER
+  // ============================================================
+  function clearBG() {
     ctx.fillStyle = "#0b0f15";
     ctx.fillRect(0, 0, W, H);
-    // faint measurement grid
-    ctx.strokeStyle = "#141b24";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let gx = 0; gx <= W; gx += 48) { ctx.moveTo(gx, 0); ctx.lineTo(gx, FLOOR); }
-    for (let gy = 0; gy <= FLOOR; gy += 48) { ctx.moveTo(0, gy); ctx.lineTo(W, gy); }
-    ctx.stroke();
-    // floor
-    const fg = ctx.createLinearGradient(0, FLOOR, 0, H);
-    fg.addColorStop(0, "#1b2531");
-    fg.addColorStop(1, "#0c1118");
-    ctx.fillStyle = fg;
-    ctx.fillRect(0, FLOOR, W, H - FLOOR);
-    ctx.strokeStyle = "#2b6f77";
-    ctx.globalAlpha = 0.5;
-    ctx.beginPath(); ctx.moveTo(0, FLOOR + 0.5); ctx.lineTo(W, FLOOR + 0.5); ctx.stroke();
-    ctx.globalAlpha = 1;
+  }
 
-    // particles
+  function render() {
+    clearBG();
+    if (mode === "2d") render2D(); else render3D();
     let maxH = 0;
-    for (let i = 0; i < N; i++) {
-      const c = colorFor(i);
-      if (heat[i] > maxH) maxH = heat[i];
-      ctx.fillStyle = "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
-      ctx.beginPath();
-      ctx.arc(x[i], y[i], rad[i], 0, 6.2832);
-      ctx.fill();
-    }
-
-    // glow pass (additive)
-    ctx.globalCompositeOperation = "lighter";
-    for (let i = 0; i < N; i++) {
-      const h = heat[i];
-      if (h < 0.32) continue;
-      const w = heatRamp(Math.min(1, h));
-      ctx.fillStyle = "rgba(" + (w[0] | 0) + "," + (w[1] | 0) + "," + (w[2] | 0) + "," + (h * 0.34).toFixed(3) + ")";
-      ctx.beginPath();
-      ctx.arc(x[i], y[i], rad[i] * 2.7, 0, 6.2832);
-      ctx.fill();
-    }
-    // sparks (additive)
-    for (let i = 0; i < sparks.length; i++) {
-      const p = sparks[i];
-      const a = Math.max(0, Math.min(1, p.life * 1.6));
-      ctx.fillStyle = "rgba(255," + (170 + a * 80 | 0) + ",90," + a.toFixed(3) + ")";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 1.6 + a * 1.4, 0, 6.2832);
-      ctx.fill();
-    }
-    ctx.globalCompositeOperation = "source-over";
-
+    for (let i = 0; i < N; i++) if (heat[i] > maxH) maxH = heat[i];
     if (maxH > maxHeatEver) maxHeatEver = maxH;
     updateReadouts();
   }
 
-  // ---------- readouts / UI ----------
+  function render2D() {
+    ctx.strokeStyle = "#141b24"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let gx = 0; gx <= W; gx += 48) { ctx.moveTo(gx, 0); ctx.lineTo(gx, FLOOR); }
+    for (let gy = 0; gy <= FLOOR; gy += 48) { ctx.moveTo(0, gy); ctx.lineTo(W, gy); }
+    ctx.stroke();
+    const fg = ctx.createLinearGradient(0, FLOOR, 0, H);
+    fg.addColorStop(0, "#1b2531"); fg.addColorStop(1, "#0c1118");
+    ctx.fillStyle = fg; ctx.fillRect(0, FLOOR, W, H - FLOOR);
+    ctx.strokeStyle = "#2b6f77"; ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(0, FLOOR + 0.5); ctx.lineTo(W, FLOOR + 0.5); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    for (let i = 0; i < N; i++) {
+      ctx.fillStyle = colorFor(i, 1);
+      ctx.beginPath(); ctx.arc(x[i], y[i], rad[i], 0, 6.2832); ctx.fill();
+    }
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < N; i++) {
+      const h = heat[i]; if (h < 0.32) continue;
+      const w = heatRamp(Math.min(1, h));
+      ctx.fillStyle = "rgba(" + (w[0] | 0) + "," + (w[1] | 0) + "," + (w[2] | 0) + "," + (h * 0.34).toFixed(3) + ")";
+      ctx.beginPath(); ctx.arc(x[i], y[i], rad[i] * 2.7, 0, 6.2832); ctx.fill();
+    }
+    for (let i = 0; i < sparks.length; i++) drawSpark(sparks[i].x, sparks[i].y, sparks[i].life, 1);
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // --- 3D projection ---
+  let order = null;
+  function project(px, py, pz) {
+    const dx = px - camTarget.x, dy = py - camTarget.y, dz = pz - camTarget.z;
+    const cy2 = Math.cos(yaw), sy2 = Math.sin(yaw);
+    const x1 = dx * cy2 + dz * sy2, z1 = -dx * sy2 + dz * cy2, y1 = dy;
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const y2 = y1 * cp - z1 * sp, z2 = y1 * sp + z1 * cp;
+    const zc = z2 + CAM_D;
+    if (zc < 20) return null;
+    const scale = FOCAL / zc;
+    return { sx: W / 2 + x1 * scale, sy: H / 2 + y2 * scale, scale, depth: zc };
+  }
+
+  function render3D() {
+    // floor grid on y = FLOOR plane
+    ctx.strokeStyle = "#17202b"; ctx.lineWidth = 1;
+    const gx0 = 80, gx1 = 760, gz0 = -200, gz1 = 200, gstep = 40;
+    ctx.beginPath();
+    for (let gx = gx0; gx <= gx1; gx += gstep) {
+      const a = project(gx, FLOOR, gz0), b = project(gx, FLOOR, gz1);
+      if (a && b) { ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); }
+    }
+    for (let gz = gz0; gz <= gz1; gz += gstep) {
+      const a = project(gx0, FLOOR, gz), b = project(gx1, FLOOR, gz);
+      if (a && b) { ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); }
+    }
+    ctx.stroke();
+
+    // depth sort (far -> near)
+    if (!order || order.length !== N) order = new Int32Array(N).map((_, i) => i);
+    for (let i = 0; i < N; i++) order[i] = i;
+    const depth = new Float32Array(N);
+    const proj = new Array(N);
+    for (let i = 0; i < N; i++) { const p = project(x[i], y[i], z[i]); proj[i] = p; depth[i] = p ? p.depth : -1; }
+    order.sort((a, b) => depth[b] - depth[a]);
+
+    for (let k = 0; k < N; k++) {
+      const i = order[k]; const p = proj[i]; if (!p) continue;
+      const shade = Math.max(0.45, Math.min(1, 1.15 - p.depth / (CAM_D * 1.6)));
+      ctx.fillStyle = colorFor(i, shade);
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, Math.max(0.6, rad[i] * p.scale), 0, 6.2832); ctx.fill();
+    }
+    // glow
+    ctx.globalCompositeOperation = "lighter";
+    for (let k = 0; k < N; k++) {
+      const i = order[k]; const p = proj[i]; if (!p) continue;
+      const h = heat[i]; if (h < 0.32) continue;
+      const w = heatRamp(Math.min(1, h));
+      ctx.fillStyle = "rgba(" + (w[0] | 0) + "," + (w[1] | 0) + "," + (w[2] | 0) + "," + (h * 0.3).toFixed(3) + ")";
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, rad[i] * p.scale * 2.7, 0, 6.2832); ctx.fill();
+    }
+    for (let i = 0; i < sparks.length; i++) {
+      const s = sparks[i]; const p = project(s.x, s.y, s.z);
+      if (p) drawSpark(p.sx, p.sy, s.life, p.scale);
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  function drawSpark(sx, sy, life, scale) {
+    const a = Math.max(0, Math.min(1, life * 1.6));
+    ctx.fillStyle = "rgba(255," + (170 + a * 80 | 0) + ",90," + a.toFixed(3) + ")";
+    ctx.beginPath(); ctx.arc(sx, sy, (1.6 + a * 1.4) * Math.max(0.5, scale), 0, 6.2832); ctx.fill();
+  }
+
+  // ============================================================
+  //  UI
+  // ============================================================
   const els = {
-    speed: document.getElementById("s-speed"),
-    str: document.getElementById("s-str"),
-    slow: document.getElementById("s-slow"),
-    vSpeed: document.getElementById("v-speed"),
-    vStr: document.getElementById("v-str"),
-    vSlow: document.getElementById("v-slow"),
-    rSpeed: document.getElementById("r-speed"),
-    rTemp: document.getElementById("r-temp"),
-    rSlow: document.getElementById("r-slow"),
-    rFrag: document.getElementById("r-frag"),
-    play: document.getElementById("b-play"),
-    reset: document.getElementById("b-reset"),
-    status: document.getElementById("status"),
+    speed: document.getElementById("s-speed"), str: document.getElementById("s-str"), slow: document.getElementById("s-slow"),
+    vSpeed: document.getElementById("v-speed"), vStr: document.getElementById("v-str"), vSlow: document.getElementById("v-slow"),
+    rSpeed: document.getElementById("r-speed"), rTemp: document.getElementById("r-temp"), rSlow: document.getElementById("r-slow"), rFrag: document.getElementById("r-frag"),
+    play: document.getElementById("b-play"), reset: document.getElementById("b-reset"),
+    status: document.getElementById("status"), hint3d: document.getElementById("hint3d"),
+    m2d: document.getElementById("m-2d"), m3d: document.getElementById("m-3d"),
+    editBtn: document.getElementById("b-edit"), shapeName: document.getElementById("shape-name"),
+    overlay: document.getElementById("overlay"), edCanvas: document.getElementById("ed"),
+    edClose: document.getElementById("ed-close"), edApply: document.getElementById("ed-apply"),
   };
 
-  function speedFromSlider(v) { return Math.round(200 + (v - 10) / 90 * 2300); } // 200..2500 u/s
-  function strainFromSlider(v) { return 0.35 - v / 100 * 0.30; } // strong => small break? invert below
-  // NOTE: higher strength => harder to break => LARGER allowable strain
-  function breakFromStrength(v) { return 0.05 + v / 100 * 0.30; } // 0.05 .. 0.35
+  function speedFromSlider(v) { return Math.round(300 + v / 100 * 5700); } // 300 .. 6000 u/s
+  function breakFromStrength(v) { return 0.05 + v / 100 * 0.30; }
 
   function syncControls() {
     launchSpeed = speedFromSlider(+els.speed.value);
     breakStrain = breakFromStrength(+els.str.value);
     slowmo = (+els.slow.value) / 100;
+    computeStep();
     els.vSpeed.textContent = launchSpeed + " u/s";
     els.vStr.textContent = els.str.value;
     els.vSlow.textContent = slowmo.toFixed(2) + "x";
   }
-
   function updateReadouts() {
     els.rSpeed.textContent = launchSpeed;
     els.rTemp.textContent = Math.round(20 + maxHeatEver * 2980);
     els.rSlow.textContent = slowmo.toFixed(2);
     els.rFrag.textContent = brokenCount;
   }
-
   function setRunning(v) {
     running = v;
     els.play.textContent = v ? "⏸ 一時停止" : "▶ 再開";
     els.status.textContent = v ? "▶ RUNNING" : "❚❚ PAUSED";
     els.status.classList.toggle("paused", !v);
   }
+  function setMode(m) {
+    mode = m;
+    els.m2d.setAttribute("aria-pressed", m === "2d");
+    els.m3d.setAttribute("aria-pressed", m === "3d");
+    els.hint3d.style.display = m === "3d" ? "" : "none";
+    order = null;
+    syncControls(); build(); setRunning(true);
+  }
+  function relaunch() { syncControls(); build(); setRunning(true); }
 
   els.speed.addEventListener("input", syncControls);
   els.str.addEventListener("input", syncControls);
   els.slow.addEventListener("input", syncControls);
   els.play.addEventListener("click", () => setRunning(!running));
-  els.reset.addEventListener("click", () => { syncControls(); build(); setRunning(true); });
+  els.reset.addEventListener("click", relaunch);
+  els.m2d.addEventListener("click", () => setMode("2d"));
+  els.m3d.addEventListener("click", () => setMode("3d"));
 
   window.addEventListener("keydown", (e) => {
+    if (!els.overlay.hidden) { if (e.key === "Escape") closeEditor(); return; }
     if (e.code === "Space") { e.preventDefault(); setRunning(!running); }
-    else if (e.key === "r" || e.key === "R") { syncControls(); build(); setRunning(true); }
-    else if (e.key === ".") { if (!running) for (let s = 0; s < 4; s++) substep(DT); }
+    else if (e.key === "r" || e.key === "R") relaunch();
+    else if (e.key === ".") { if (!running) for (let s = 0; s < stepsPerFrame; s++) substep(DT); }
   });
 
-  // ---------- main loop ----------
+  // --- 3D orbit drag ---
+  canvas.addEventListener("pointerdown", (e) => {
+    if (mode !== "3d") return;
+    dragging = true; autoYaw = false; lastPX = e.clientX; lastPY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    yaw += (e.clientX - lastPX) * 0.006;
+    pitch += (e.clientY - lastPY) * 0.005;
+    pitch = Math.max(-1.3, Math.min(0.5, pitch));
+    lastPX = e.clientX; lastPY = e.clientY;
+  });
+  const endDrag = () => { dragging = false; };
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+
+  // ============================================================
+  //  WARHEAD EDITOR
+  // ============================================================
+  const edc = els.edCanvas, edx = edc.getContext("2d");
+  const EDW = 480, EDH = 210, EDP = 34, AXIS = EDH / 2, HALF = AXIS - 16;
+  let edDrag = -1;
+  const handleX = (k) => EDP + profT(k) * (EDW - 2 * EDP);
+  const handleY = (k) => AXIS - profile[k] * HALF;
+
+  function drawEditor() {
+    edx.clearRect(0, 0, EDW, EDH);
+    edx.fillStyle = "#0d1219"; edx.fillRect(0, 0, EDW, EDH);
+    // axis
+    edx.strokeStyle = "#232c38"; edx.setLineDash([4, 4]); edx.lineWidth = 1;
+    edx.beginPath(); edx.moveTo(EDP, AXIS); edx.lineTo(EDW - EDP, AXIS); edx.stroke();
+    edx.setLineDash([]);
+    // filled silhouette
+    edx.beginPath();
+    edx.moveTo(handleX(0), AXIS - profile[0] * HALF);
+    for (let k = 1; k < PN; k++) edx.lineTo(handleX(k), AXIS - profile[k] * HALF);
+    for (let k = PN - 1; k >= 0; k--) edx.lineTo(handleX(k), AXIS + profile[k] * HALF);
+    edx.closePath();
+    const grd = edx.createLinearGradient(EDP, 0, EDW - EDP, 0);
+    grd.addColorStop(0, "#2a3644"); grd.addColorStop(1, "#4a6273");
+    edx.fillStyle = grd; edx.fill();
+    edx.strokeStyle = "#7fa8d8"; edx.lineWidth = 1.5; edx.stroke();
+    // nose marker
+    edx.fillStyle = "#38d0dc"; edx.font = "600 11px 'IBM Plex Mono', monospace";
+    edx.textAlign = "right"; edx.fillText("▶ 先端", EDW - EDP, 16);
+    edx.textAlign = "left"; edx.fillStyle = "#5a6576"; edx.fillText("後端 ◀", EDP, 16);
+    // handles (top only; radius control)
+    for (let k = 0; k < PN; k++) {
+      const hx = handleX(k), hy = handleY(k);
+      edx.fillStyle = edDrag === k ? "#4fdae5" : "#38d0dc";
+      edx.beginPath(); edx.arc(hx, hy, 5, 0, 6.2832); edx.fill();
+      edx.strokeStyle = "#06171a"; edx.lineWidth = 2; edx.stroke();
+    }
+  }
+
+  function edPointer(e) {
+    const r = edc.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * EDW, y: (e.clientY - r.top) / r.height * EDH };
+  }
+  edc.addEventListener("pointerdown", (e) => {
+    const p = edPointer(e); let best = -1, bd = 18 * 18;
+    for (let k = 0; k < PN; k++) {
+      const dx = p.x - handleX(k), dy = p.y - handleY(k), d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = k; }
+    }
+    if (best >= 0) { edDrag = best; edc.setPointerCapture(e.pointerId); markCustom(); drawEditor(); }
+  });
+  edc.addEventListener("pointermove", (e) => {
+    if (edDrag < 0) return;
+    const p = edPointer(e);
+    profile[edDrag] = Math.max(0, Math.min(1, (AXIS - p.y) / HALF));
+    drawEditor();
+  });
+  const edEnd = () => { edDrag = -1; drawEditor(); };
+  edc.addEventListener("pointerup", edEnd);
+  edc.addEventListener("pointercancel", edEnd);
+
+  function markCustom() { shapeKey = "custom"; els.shapeName.textContent = "カスタム"; }
+
+  document.querySelectorAll(".presets button").forEach((b) => {
+    b.addEventListener("click", () => {
+      const key = b.dataset.preset;
+      profile = PRESETS[key].slice();
+      shapeKey = key; els.shapeName.textContent = SHAPE_NAMES[key];
+      drawEditor();
+    });
+  });
+
+  function openEditor() { els.overlay.hidden = false; drawEditor(); }
+  function closeEditor() { els.overlay.hidden = true; }
+  els.editBtn.addEventListener("click", openEditor);
+  els.edClose.addEventListener("click", closeEditor);
+  els.overlay.addEventListener("pointerdown", (e) => { if (e.target === els.overlay) closeEditor(); });
+  els.edApply.addEventListener("click", () => { closeEditor(); relaunch(); });
+
+  // ============================================================
+  //  MAIN LOOP
+  // ============================================================
   function frame() {
     if (running) {
-      acc += slowmo * BASE_STEPS;
-      let steps = acc | 0;
-      acc -= steps;
-      if (steps > 48) steps = 48;
+      acc += slowmo * stepsPerFrame;
+      let steps = acc | 0; acc -= steps;
+      if (steps > 60) steps = 60;
       for (let s = 0; s < steps; s++) substep(DT);
     }
+    if (mode === "3d" && autoYaw && !dragging) yaw += 0.0016;
     render();
     requestAnimationFrame(frame);
   }
@@ -749,9 +981,7 @@
   // boot
   syncControls();
   build();
-  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    setRunning(false);
-  }
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) setRunning(false);
   requestAnimationFrame(frame);
 })();
 </script>
